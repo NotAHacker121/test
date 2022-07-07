@@ -1,67 +1,53 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
-#include <fcntl.h>
-#include <pthread.h>
-#include <netinet/in.h>
 #include <sys/socket.h>
-#include <sys/types.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
 #include <arpa/inet.h>
+#include <pthread.h>
 
-void * doRecieving(void * sockID){
+char msg[500];
 
-	int clientSocket = *((int *) sockID);
-
-	while(1){
-
-		char data[1024];
-		int read = recv(clientSocket,data,1024,0);
-		data[read] = '\0';
-		printf("%s\n",data);
-
+void *recvmg(void *my_sock)
+{
+	int sock=*((int *)my_sock);
+	int len;
+	while((len=recv(sock,msg,500,0))>0)
+	{
+    	msg[len]='\0';
+    	fputs(msg,stdout);
 	}
-
 }
 
-int main(){
-
-	int clientSocket = socket(PF_INET, SOCK_STREAM, 0);
-
-	struct sockaddr_in clientAddr;
-
-	clientAddr.sin_family = AF_INET;
-	clientAddr.sin_port = htons(8080);
-	clientAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-	if(connect(clientSocket, (struct sockaddr*) &clientAddr, sizeof(clientAddr)) == -1) return 0;
-
-	printf("Connection established ............\n");
-
-	pthread_t thread;
-	pthread_create(&thread, NULL, doRecieving, (void *) &clientSocket );
-
-	while(1){
-
-		char input[1024];
-		scanf("%s",input);
-
-		if(strcmp(input,"LIST") == 0){
-
-			send(clientSocket,input,1024,0);
-
-		}
-		if(strcmp(input,"SEND") == 0){
-
-			send(clientSocket,input,1024,0);
-			
-			scanf("%s",input);
-			send(clientSocket,input,1024,0);
-			
-			scanf("%[^\n]s",input);
-			send(clientSocket,input,1024,0);
-
-		}
-
+int main(int argc,char *argv[])
+{
+	pthread_t recvt;
+	int len;
+	int sock;
+	char send_msg[500];
+	struct sockaddr_in ServerIp;
+	char client_name[100];
+	strcpy(client_name, argv[1]);
+    
+	sock=socket( AF_INET, SOCK_STREAM,0);
+	ServerIp.sin_port = htons(5555);
+	ServerIp.sin_family= AF_INET;
+	ServerIp.sin_addr.s_addr = inet_addr("127.0.0.1");
+    
+	if((connect(sock,(struct sockaddr*)&ServerIp,sizeof(ServerIp)))==-1)
+    	printf("\n Connection to socket failed \n");
+	pthread_create(&recvt,NULL,(void *)recvmg,&sock);
+	
+	while(fgets(msg,500,stdin)>0)
+	{
+    	strcpy(send_msg,client_name);
+    	strcat(send_msg,":");
+    	strcat(send_msg,msg);
+    	len=write(sock,send_msg,strlen(send_msg));
+    	if(len < 0)
+        	printf("\n Message not sent \n");
 	}
+
+	pthread_join(recvt,NULL);
+	close(sock);
+	return 0;
 }
