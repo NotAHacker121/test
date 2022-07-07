@@ -1,97 +1,69 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
-#include <fcntl.h>
-#include <pthread.h>
-#include <netinet/in.h>
 #include <sys/socket.h>
-#include <sys/types.h>
+#include <stdio.h>
+#include <string.h>
 #include <arpa/inet.h>
+#include <pthread.h>
 
-int clientCount = 0;
+pthread_mutex_t mutex;
+int clients[20];
+int n=0;
 
-static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+void sendtoall(char *msg,int curr){
+	int i;
+	pthread_mutex_lock(&mutex);
+	for(i = 0; i < n; i++) {
+    	if(clients[i] != curr) {
+        	if(send(clients[i],msg,strlen(msg),0) < 0) 
+        	{
+            	printf("Sending failure \n");
+            	continue;
+        	}
+    	}
+	}
+	pthread_mutex_unlock(&mutex);
+}
 
-struct client
-{
+void *recvmg(void *client_sock){
+	int sock = *((int *)client_sock);
+	char msg[500];
+	int len;
+	while((len=recv(sock,msg,500,0)) > 0)
+	{
+    	msg[len] = '\0';
+    	sendtoall(msg,sock);
+	}
 
-    int index;
-    int sockID;
-    struct sockaddr_in clientAddr;
-    int len;
-};
-
-struct client Client[1024];
-pthread_t thread[1024];
-
-void *doNetworking(void *ClientDetail)
-{
-
-    struct client *clientDetail = (struct client *)ClientDetail;
-    int index = clientDetail->index;
-    int clientSocket = clientDetail->sockID;
-
-    printf("Client %d connected.\n", index + 1);
-
-    while (1)
-    {
-
-        char data[1024];
-        int read = recv(clientSocket, data, 1024, 0);
-        data[read] = '\0';
-
-        char output[1024];
-        
-        if (strcmp(data, "SEND") == 0)
-        {
-
-            read = recv(clientSocket, data, 1024, 0);
-            data[read] = '\0';
-
-            int id = atoi(data) - 1;
-
-            read = recv(clientSocket, data, 1024, 0);
-            data[read] = '\0';
-
-            send(Client[id].sockID, data, 1024, 0);
-        }
-    }
-
-    return NULL;
 }
 
 int main()
 {
+	struct sockaddr_in ServerIp;
+	pthread_t recvt;
+	int sock=0 , Client_sock=0;
 
-    int serverSocket = socket(PF_INET, SOCK_STREAM, 0);
+	ServerIp.sin_family = AF_INET;
+	ServerIp.sin_port = htons(5555);
+	ServerIp.sin_addr.s_addr = inet_addr("127.0.0.1");
+	sock = socket( AF_INET , SOCK_STREAM, 0 );
+	if( bind( sock, (struct sockaddr *)&ServerIp, 
+	sizeof(ServerIp)) == -1 )
+    	printf("Cannot bind, error!! \n");
+	else
+    	printf("Server Started\n");
 
-    struct sockaddr_in serverAddr;
+	if( listen( sock ,20 ) == -1 )
+    	printf("Listening failed \n");
 
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(8080);
-    serverAddr.sin_addr.s_addr = htons(INADDR_ANY);
-
-    if (bind(serverSocket, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) == -1)
-        return 0;
-
-    if (listen(serverSocket, 1024) == -1)
-        return 0;
-
-    printf("Server started listenting on port 8080 ...........\n");
-
-    while (1)
-    {
-
-        Client[clientCount].sockID = accept(serverSocket, (struct sockaddr *)&Client[clientCount].clientAddr, &Client[clientCount].len);
-        Client[clientCount].index = clientCount;
-
-        pthread_create(&thread[clientCount], NULL, doNetworking, (void *)&Client[clientCount]);
-
-        clientCount++;
-    }
-
-    for (int i = 0; i < clientCount; i++)
-        pthread_join(thread[i], NULL);
+	while(1)
+	{
+    	if( (Client_sock=accept(sock,(struct sockaddr*)NULL,NULL)) < 0 )
+        	printf("Accept failed  \n");
+   	 
+    	pthread_mutex_lock(&mutex);
+    	clients[n]= Client_sock;
+    	n++;
+    	pthread_create(&recvt,NULL,(void*)recvmg,&Client_sock);
+    	pthread_mutex_unlock(&mutex);
+	}
+	return 0;
 }
